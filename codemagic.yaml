@@ -1,0 +1,78 @@
+# Codemagic builds the genuine Husk iOS app from Leviidev/Husk source.
+# License: GPL-2.0-or-later; no example or "fake APK" is bundled.
+#
+# The built IPA is AD-HOC signed for re-signing by SideStore / AltStore.
+# Husk upstream requires iOS 15.5+ (not compatible with iPhone 6 / iOS 12).
+workflows:
+  husk-real-apk-ipa:
+    name: Husk — real APK runtime IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      vars:
+        SDKMINVER: "15.5"
+    scripts:
+      - name: Get Husk source if not yet imported
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          if [ ! -f src/app/project.yml ]; then
+            echo "Source not yet committed in this repository. Fetching official Husk source for this build."
+            tempdir="$(mktemp -d)"
+            git clone --depth 1 --branch main https://github.com/Leviidev/Husk.git "$tempdir/Husk"
+            rsync -a --exclude=.git --exclude=.github --exclude=README.md --exclude=LICENSE \
+              "$tempdir/Husk/" "$CM_BUILD_DIR/"
+            git -C "$tempdir/Husk" rev-parse HEAD | tee "$CM_BUILD_DIR/husk-upstream-revision.txt"
+            rm -rf "$tempdir"
+          else
+            echo "Using Husk source checked into this repository."
+          fi
+          test -f src/app/Husk/TranslationLayer.swift
+          test -f src/translation-layer-next/husk-tl-unity.c
+          test -f scripts/ci_build.sh
+          echo "Real APK translation layer and QEMU build scripts are present."
+
+      - name: Apply low-end rendering defaults and omit unrelated PS4 add-on
+        script: |
+          set -euo pipefail
+          python3 scripts/codemagic_prepare.py
+
+      - name: Install iOS native build dependencies
+        script: |
+          set -euo pipefail
+          brew update
+          brew install meson ninja pkg-config xcodegen qemu cmake autoconf automake libtool
+          command -v python3
+          command -v xcodegen
+          command -v qemu-img
+          command -v cargo
+          rustup target add aarch64-apple-ios
+          xcodebuild -version
+
+      - name: Build native APK runtime and package IPA
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          mkdir -p build
+          # Compiles QEMU, ANGLE, MoltenVK, Rust helper, Swift app.
+          # The upstream packager rejects stale/partial bundles.
+          bash scripts/ci_build.sh "$CM_BUILD_DIR/build/Husk.ipa"
+
+      - name: Verify real app bundle in IPA
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          test -s build/Husk.ipa
+          unzip -Z1 build/Husk.ipa | grep -Eq '^Payload/Husk.app/Husk$'
+          unzip -Z1 build/Husk.ipa | grep -Eq '^Payload/Husk.app/Frameworks/libqemu-aarch64-softmmu.dylib$'
+          unzip -Z1 build/Husk.ipa | grep -Eq '^Payload/Husk.app/Frameworks/libANGLE-shared.dylib$'
+          echo "Verified compiled Husk app and emulator libraries (not a sample APK)."
+          ls -lh build/Husk.ipa build/Husk.tipa 2>/dev/null || true
+
+    artifacts:
+      - build/Husk.ipa
+      - build/Husk.tipa
+      - build/logs/**/*.log
+      - /tmp/husk_ipa/build.log
+      - husk-upstream-revision.txt
