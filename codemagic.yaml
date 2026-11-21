@@ -9,7 +9,8 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
-      xcode: latest
+      # Pin to 26.5: 26.6 requests MetalToolchain 17F109, whose asset catalog failed.
+      xcode: 26.5
       vars:
         SDKMINVER: "15.5"
     scripts:
@@ -62,13 +63,31 @@ workflows:
           rustc --version
           rustup target list --installed
           xcodebuild -version
-          # Xcode 26.x may ship without the Metal compiler. ANGLE invokes it
-          # while compiling real APK GPU rendering support; without the
-          # separate Metal Toolchain component the build fails.
-          echo "Installing Xcode Metal Toolchain for ANGLE shaders..."
-          xcodebuild -downloadComponent MetalToolchain
-          echo "Checking the Metal compiler is now available..."
-          xcrun --sdk iphoneos --find metal
+          # Xcode 26.6 requests MetalToolchain 17F109, whose asset catalog
+          # failed on this Codemagic machine. Pin Xcode 26.5 instead.
+          # The Metal compiler is a separate component in Xcode 26.
+          echo "Checking installed Metal Toolchain..."
+          xcodebuild -showComponent MetalToolchain || true
+          if ! xcodebuild -showComponent MetalToolchain 2>&1 | grep -qiE 'Status:[[:space:]]*installed'; then
+            echo "Metal Toolchain missing; downloading for pinned Xcode 26.5..."
+            # Retry only for transient Apple asset-server problems.
+            installed=0
+            for attempt in 1 2; do
+              if xcodebuild -downloadComponent MetalToolchain; then
+                installed=1
+                break
+              fi
+              echo "Metal component download attempt $attempt failed."
+              if [ "$attempt" -lt 2 ]; then sleep 10; fi
+            done
+            if [ "$installed" -ne 1 ]; then
+              echo "Apple's Metal Toolchain catalog is unavailable for Xcode 26.5; cannot compile ANGLE shaders." >&2
+              exit 1
+            fi
+          fi
+          echo "Verifying Metal Toolchain installation..."
+          xcodebuild -showComponent MetalToolchain
+          xcrun --sdk iphoneos metal --version
 
       - name: Build native APK runtime and package IPA
         script: |
