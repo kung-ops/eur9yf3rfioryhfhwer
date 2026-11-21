@@ -41,19 +41,34 @@ workflows:
       - name: Install iOS native build dependencies
         script: |
           set -euo pipefail
-          brew update
+          # CI images may have no Rust installed. Husk's native pairing
+          # helper requires cargo, rustup, and the iOS arm64 Rust target.
           brew install meson ninja pkg-config xcodegen qemu cmake autoconf automake libtool
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v cargo >/dev/null 2>&1 || ! command -v rustup >/dev/null 2>&1; then
+            echo "Installing Rust toolchain (cargo + rustup)..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios
           command -v python3
           command -v xcodegen
           command -v qemu-img
           command -v cargo
-          rustup target add aarch64-apple-ios
+          command -v rustup
+          cargo --version
+          rustc --version
+          rustup target list --installed
           xcodebuild -version
 
       - name: Build native APK runtime and package IPA
         script: |
           set -euo pipefail
           cd "$CM_BUILD_DIR"
+          # Each Codemagic script starts a fresh shell, so keep Rust on PATH.
+          export PATH="$HOME/.cargo/bin:$PATH"
           mkdir -p build
           # Compiles QEMU, ANGLE, MoltenVK, Rust helper, Swift app.
           # The upstream packager rejects stale/partial bundles.
