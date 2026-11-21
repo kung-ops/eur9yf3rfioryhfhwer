@@ -76,6 +76,13 @@ workflows:
           cd "$CM_BUILD_DIR"
           # Each Codemagic script starts a fresh shell, so keep Rust on PATH.
           export PATH="$HOME/.cargo/bin:$PATH"
+          # virglrenderer/Mesa's Meson generator imports Python 'yaml'.
+          # Install into an isolated interpreter that remains first on PATH
+          # throughout the native build, avoiding Python environment mismatch.
+          python3 -m venv "$CM_BUILD_DIR/.codemagic-python"
+          . "$CM_BUILD_DIR/.codemagic-python/bin/activate"
+          python3 -m pip install --upgrade "PyYAML>=6,<7"
+          python3 -c 'import sys, yaml; print("Meson Python:", sys.executable, "PyYAML:", yaml.__version__)'
           mkdir -p build
           # Compiles QEMU, ANGLE, MoltenVK, Rust helper, Swift app.
           # The upstream packager rejects stale/partial bundles.
