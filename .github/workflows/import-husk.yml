@@ -1,0 +1,43 @@
+name: Import upstream Husk source
+
+on:
+  push:
+    paths:
+      - '.github/workflows/import-husk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out destination
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Clone upstream Husk
+        run: git clone --depth=1 --branch main https://github.com/Leviidev/Husk.git /tmp/husk-upstream
+      - name: Import source with attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --exclude='.git' --exclude='.github/workflows' /tmp/husk-upstream/ ./
+          cat > UPSTREAM.md <<'EOF'
+          # Upstream source
+
+          This repository imports source from [Leviidev/Husk](https://github.com/Leviidev/Husk).
+          Husk is licensed under GPL-2.0-or-later. See [LICENSE](LICENSE) and
+          [docs/01-licensing.md](docs/01-licensing.md) for license information.
+
+          The upstream project currently targets iOS 15.5 or later.
+          This import does **not** add iOS 12 or iPhone 6 support.
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Import Husk upstream source (GPL-2.0-or-later) [skip ci]"
+            git push origin HEAD:main
+          fi
