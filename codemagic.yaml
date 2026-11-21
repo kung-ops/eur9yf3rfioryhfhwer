@@ -62,6 +62,13 @@ workflows:
           rustc --version
           rustup target list --installed
           xcodebuild -version
+          # Xcode 26.x may ship without the Metal compiler. ANGLE invokes it
+          # while compiling real APK GPU rendering support; without the
+          # separate Metal Toolchain component the build fails.
+          echo "Installing Xcode Metal Toolchain for ANGLE shaders..."
+          xcodebuild -downloadComponent MetalToolchain
+          echo "Checking the Metal compiler is now available..."
+          xcrun --sdk iphoneos --find metal
 
       - name: Build native APK runtime and package IPA
         script: |
