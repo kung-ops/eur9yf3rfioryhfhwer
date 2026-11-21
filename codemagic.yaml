@@ -105,7 +105,20 @@ workflows:
           mkdir -p build
           # Compiles QEMU, ANGLE, MoltenVK, Rust helper, Swift app.
           # The upstream packager rejects stale/partial bundles.
-          bash scripts/ci_build.sh "$CM_BUILD_DIR/build/Husk.ipa"
+          # QEMU writes errors to build/logs/qemu.log; print those errors
+          # instead of hiding them behind "[FAIL] qemu" on Codemagic.
+          if ! bash scripts/ci_build.sh "$CM_BUILD_DIR/build/Husk.ipa"; then
+            echo "===== Husk native build FAILED: diagnostics ====="
+            if [ -s build/logs/qemu.log ]; then
+              echo "===== QEMU error / linker / configure highlights ====="
+              grep -nEi 'error:|fatal error|FAILED:|undefined symbols|undefined reference|ld:|ninja:|meson\.build|configure: error|traceback' build/logs/qemu.log | tail -n 80 || true
+              echo "===== Last 160 lines of build/logs/qemu.log ====="
+              tail -n 160 build/logs/qemu.log
+            else
+              echo "No QEMU log was created. Check other build/logs artifacts."
+            fi
+            exit 1
+          fi
 
       - name: Verify real app bundle in IPA
         script: |
@@ -122,5 +135,6 @@ workflows:
       - build/Husk.ipa
       - build/Husk.tipa
       - build/logs/**/*.log
+      - build/logs/*.log
       - /tmp/husk_ipa/build.log
       - husk-upstream-revision.txt
